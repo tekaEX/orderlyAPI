@@ -62,4 +62,6 @@ def responder_a_usuario(recipient_id, mensaje):
     print("📤 Respuesta enviada:", response.json())
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))  # Render usa PORT dinámico
+    app.run(host="0.0.0.0", port=port)
+

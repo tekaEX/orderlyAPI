@@ -6,7 +6,7 @@ app = Flask(__name__)
 
 # 🔐 Carga de variables de entorno
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "orden_ordely_verification_token")
-PAGE_ACCESS_TOKEN = os.environ.get("page_access_token")  # corregido con el nombre de la variable real
+PAGE_ACCESS_TOKEN = os.environ.get("page_access_token")  # asegúrate de que esté bien en Render
 
 # ✅ Ruta de verificación para Meta
 @app.route("/", methods=["GET"])
@@ -30,7 +30,6 @@ def receive_message():
     data = request.get_json()
     print("📩 Mensaje recibido:", data)
 
-    # Verifica si es un mensaje válido
     if data.get("object") == "page":
         for entry in data.get("entry", []):
             for messaging_event in entry.get("messaging", []):
@@ -39,7 +38,6 @@ def receive_message():
                     message_text = messaging_event["message"].get("text")
                     print(f"🧾 Nuevo mensaje de {sender_id}: {message_text}")
 
-                    # Aquí podrías enviar una respuesta automática (opcional)
                     responder_a_usuario(sender_id, "¡Gracias por tu mensaje! 🚀")
 
     return "EVENT_RECEIVED", 200
@@ -61,7 +59,9 @@ def responder_a_usuario(recipient_id, mensaje):
     response = requests.post(url, headers=headers, params=params, json=payload)
     print("📤 Respuesta enviada:", response.json())
 
+# ✅ Este bloque asegura que solo Flask se ejecute localmente (no en gunicorn)
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Render usa PORT dinámico
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 

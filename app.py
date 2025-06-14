@@ -29,18 +29,24 @@ def verify_webhook():
         return "Token de verificación inválido", 403
 
 @app.route("/webhook", methods=["POST"])
+@app.route("/webhook", methods=["POST"])
 def receive_message():
     data = request.get_json()
     print("📩 Mensaje recibido:", data)
-    log_debug(data)  # Logging local
-    print(f"📄 page_id recibido: {page_id}")
-    print(f"🔎 sheet_id obtenido: {sheet_id}")
-
+    log_debug(data)  # ⬅️ Logging para debugging y auditoría
 
     if data.get("object") == "page":
-        for entry in data.get("entry", []):
-            page_id = entry.get("id")
+        entries = data.get("entry", [])
+        if not entries:
+            print("❌ No hay 'entry' en el mensaje recibido")
+            return "EVENT_RECEIVED", 200
+
+        for entry in entries:
+            page_id = entry.get("id", "desconocido")
+            print(f"📄 page_id recibido: {page_id}")
+
             sheet_id = obtener_id_pedidos_por_page_id(page_id)
+            print(f"🔎 sheet_id obtenido: {sheet_id}")
             if not sheet_id:
                 print(f"❌ No se encontró hoja de pedidos para tienda con page_id={page_id}")
                 continue
@@ -50,7 +56,7 @@ def receive_message():
                 if "message" in messaging_event:
                     message_text = messaging_event["message"].get("text")
                     if not message_text:
-                        continue  # Solo texto
+                        continue  # Solo registramos texto
 
                     nuevo_pedido = {
                         "pedido_id": f"P_{datetime.now().timestamp()}",
@@ -65,15 +71,17 @@ def receive_message():
                         "dirección": ""
                     }
 
+                    # Guardar el mensaje en Google Sheets
                     try:
-                            agregar_pedido(sheet_id, nuevo_pedido)
-                            print(f"✅ Pedido registrado en tienda {page_id} (sheet: {sheet_id})")
-                            registrar_debug(page_id, sender_id, message_text, "OK")
+                        agregar_pedido(sheet_id, nuevo_pedido)
+                        print(f"✅ Pedido registrado en tienda {page_id} (sheet: {sheet_id})")
+                        registrar_debug(page_id, sender_id, message_text, "OK")
                     except Exception as e:
                         print(f"❌ Error al registrar el pedido en {sheet_id}: {str(e)}")
                         registrar_debug(page_id, sender_id, message_text, "ERROR", str(e))
 
     return "EVENT_RECEIVED", 200
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

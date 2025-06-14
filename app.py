@@ -33,6 +33,9 @@ def receive_message():
     data = request.get_json()
     print("📩 Mensaje recibido:", data)
     log_debug(data)  # Logging local
+    print(f"📄 page_id recibido: {page_id}")
+    print(f"🔎 sheet_id obtenido: {sheet_id}")
+
 
     if data.get("object") == "page":
         for entry in data.get("entry", []):
@@ -63,11 +66,11 @@ def receive_message():
                     }
 
                     try:
-                        agregar_pedido(sheet_id, nuevo_pedido)
-                        print(f"✅ Pedido registrado en tienda {page_id}")
-                        registrar_debug(page_id, sender_id, message_text, "OK")
+                            agregar_pedido(sheet_id, nuevo_pedido)
+                            print(f"✅ Pedido registrado en tienda {page_id} (sheet: {sheet_id})")
+                            registrar_debug(page_id, sender_id, message_text, "OK")
                     except Exception as e:
-                        print("❌ Error al registrar el pedido:", str(e))
+                        print(f"❌ Error al registrar el pedido en {sheet_id}: {str(e)}")
                         registrar_debug(page_id, sender_id, message_text, "ERROR", str(e))
 
     return "EVENT_RECEIVED", 200

@@ -1,15 +1,12 @@
 from flask import Flask, request
 import os
-from sheets import agregar_pedido, obtener_id_pedidos_por_page_id
-from datetime import datetime
 from sheets import agregar_pedido, obtener_id_pedidos_por_page_id, registrar_debug
+from datetime import datetime
 import json
 
 app = Flask(__name__)
 
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "orden_ordely_verification_token")
-
-# Archivo local para debugging de mensajes (se guarda en disco del servidor)
 DEBUG_LOG = "orderly_debug.log"
 
 def log_debug(data):
@@ -35,12 +32,11 @@ def verify_webhook():
 def receive_message():
     data = request.get_json()
     print("📩 Mensaje recibido:", data)
-    log_debug(data)  # ⬅️ Logging para debugging y auditoría
+    log_debug(data)  # Logging local
 
     if data.get("object") == "page":
         for entry in data.get("entry", []):
-            page_id = entry.get("id")  # ID de la página/tienda
-
+            page_id = entry.get("id")
             sheet_id = obtener_id_pedidos_por_page_id(page_id)
             if not sheet_id:
                 print(f"❌ No se encontró hoja de pedidos para tienda con page_id={page_id}")
@@ -51,7 +47,7 @@ def receive_message():
                 if "message" in messaging_event:
                     message_text = messaging_event["message"].get("text")
                     if not message_text:
-                        continue  # Solo registramos texto
+                        continue  # Solo texto
 
                     nuevo_pedido = {
                         "pedido_id": f"P_{datetime.now().timestamp()}",
@@ -66,22 +62,15 @@ def receive_message():
                         "dirección": ""
                     }
 
-                    # Guardar el mensaje en Google Sheets
                     try:
                         agregar_pedido(sheet_id, nuevo_pedido)
                         print(f"✅ Pedido registrado en tienda {page_id}")
+                        registrar_debug(page_id, sender_id, message_text, "OK")
                     except Exception as e:
                         print("❌ Error al registrar el pedido:", str(e))
+                        registrar_debug(page_id, sender_id, message_text, "ERROR", str(e))
 
     return "EVENT_RECEIVED", 200
-
-try:
-    agregar_pedido(sheet_id, nuevo_pedido)
-    print(f"✅ Pedido registrado en tienda {page_id}")
-    registrar_debug(page_id, sender_id, message_text, "OK")
-except Exception as e:
-    print("❌ Error al registrar el pedido:", str(e))
-    registrar_debug(page_id, sender_id, message_text, "ERROR", str(e))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

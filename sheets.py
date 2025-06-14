@@ -1,91 +1,100 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 from datetime import datetime
 
-# Autenticación Google
+# Autenticación Google Sheets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(creds)
-drive_service = build("drive", "v3", credentials=creds)
 
-# Carpeta raíz
-ORDERLY_FOLDER_ID = "1BmTLDkJyvuCaxWPViwdMjqfUyf55Cx_q"
+# Nombre y estructura de la hoja maestra
+NOMBRE_MAESTRO = "Orderly_Master"
+NOMBRE_HOJA_TIENDAS = "Tiendas"
+COLUMNA_PAGE_ID = "page_id"
+COLUMNA_ID_PEDIDOS = "id_sheet_pedidos"
 
-def crear_carpeta_y_archivos_tienda(nombre_tienda, id_tienda):
+# Columnas visuales del sheet de pedidos (ajusta aquí si cambias la plantilla)
+CAMPOS = [
+    "id_pedido", "fecha", "cliente_nombre", "instagram_usual", "productos", "total",
+    "tipo_entrega", "direccion_envio", "contacto", "estado", "observaciones"
+]
+
+def obtener_id_pedidos_por_page_id(page_id):
+    """
+    Busca el ID del archivo de pedidos de la tienda según page_id en la hoja maestra.
+    """
+    hoja = client.open(NOMBRE_MAESTRO).worksheet(NOMBRE_HOJA_TIENDAS)
+    datos = hoja.get_all_records()
+    for tienda in datos:
+        if str(tienda[COLUMNA_PAGE_ID]) == str(page_id):
+            return tienda[COLUMNA_ID_PEDIDOS]
+    return None
+
+def agregar_pedido(sheet_id, datos):
+    """
+    Agrega un pedido a la hoja de pedidos especificada por sheet_id, respetando el formato visual (desde fila 8 en adelante).
+    """
+    hoja = client.open_by_key(sheet_id).sheet1
+
+    # Encontrar la siguiente fila disponible, empezando desde la fila 8
+    filas = hoja.get_all_values()
+    fila_destino = len(filas) + 1 if len(filas) >= 8 else 8
+
+    # Armar la fila según el orden de tu plantilla
+    nueva_fila = [
+        datos.get("id_pedido", ""),
+        datos.get("fecha", datetime.now().strftime("%Y-%m-%d %H:%M")),
+        datos.get("cliente_nombre", ""),
+        datos.get("instagram_usual", ""),
+        datos.get("productos", ""),
+        datos.get("total", ""),
+        datos.get("tipo_entrega", ""),
+        datos.get("direccion_envio", ""),
+        datos.get("contacto", ""),
+        datos.get("estado", "pendiente"),
+        datos.get("observaciones", "")
+    ]
+
+    hoja.insert_row(nueva_fila, fila_destino)
+    print(f"✅ Pedido agregado en fila {fila_destino} (hoja {sheet_id})")
+
+# Ejemplo de uso aislado
+if __name__ == "__main__":
+    # page_id de ejemplo
+    page_id = "1234567890"
+    sheet_id = obtener_id_pedidos_por_page_id(page_id)
+    if not sheet_id:
+        print("No se encontró la hoja de pedidos para este page_id.")
+    else:
+        pedido_demo = {
+            "id_pedido": "P001",
+            "cliente_nombre": "Juan Pérez",
+            "instagram_usual": "@ejemplo",
+            "productos": "Chaqueta L, Zapatillas 42",
+            "total": "59990",
+            "tipo_entrega": "Envío",
+            "direccion_envio": "Calle Falsa 123",
+            "contacto": "+56 9 1234 5678",
+            "estado": "pendiente",
+            "observaciones": "Cliente habitual"
+        }
+        agregar_pedido(sheet_id, pedido_demo)
+        
+def registrar_debug(page_id, sender_id, message_text, estado, observaciones=""):
+    """
+    Registra un log simple en la hoja Debug de Orderly_Master.
+    """
     try:
-        # Crear subcarpeta con el ID de la tienda (ej: T001)
-        subcarpeta_metadata = {
-            "name": id_tienda,
-            "mimeType": "application/vnd.google-apps.folder",
-            "parents": [ORDERLY_FOLDER_ID]
-        }
-        subcarpeta = drive_service.files().create(body=subcarpeta_metadata, fields="id").execute()
-        subcarpeta_id = subcarpeta["id"]
-        print(f"📁 Subcarpeta creada: {id_tienda} (ID: {subcarpeta_id})")
-
-        # ===== Crear archivo de Inventario (ej: Inventario_Timelezz) =====
-        archivo_inventario_metadata = {
-            "name": f"Inventario_{nombre_tienda}",
-            "mimeType": "application/vnd.google-apps.spreadsheet",
-            "parents": [subcarpeta_id]
-        }
-        inventario_file = drive_service.files().create(body=archivo_inventario_metadata, fields="id").execute()
-        inventario_id = inventario_file["id"]
-
-        sheet_inv = client.open_by_key(inventario_id)
-        hoja_inv = sheet_inv.sheet1
-        hoja_inv.update_title("Inventario")
-        hoja_inv.append_row(["codigo", "nombre", "precio", "stock", "estado", "media_id_post", "talla", "color", "categoria", "observaciones"])
-        print(f"📄 Archivo Inventario creado: Inventario_{nombre_tienda}")
-
-        # ===== Crear archivo de Pedidos (ej: Pedidos_Timelezz) =====
-        archivo_pedidos_metadata = {
-            "name": f"Pedidos_{nombre_tienda}",
-            "mimeType": "application/vnd.google-apps.spreadsheet",
-            "parents": [subcarpeta_id]
-        }
-        pedidos_file = drive_service.files().create(body=archivo_pedidos_metadata, fields="id").execute()
-        pedidos_id = pedidos_file["id"]
-
-        sheet_ped = client.open_by_key(pedidos_id)
-        hoja_ped = sheet_ped.sheet1
-        hoja_ped.update_title("Pedidos")
-        hoja_ped.append_row(["id_pedido", "fecha", "cliente_nombre", "instagram_usuario", "productos", "total", "tipo_entrega", "direccion_envio", "contacto", "estado", "observaciones"])
-        print(f"📄 Archivo Pedidos creado: Pedidos_{nombre_tienda}")
-
-        return {
-            "carpeta_id": subcarpeta_id,
-            "inventario_id": inventario_id,
-            "pedidos_id": pedidos_id
-        }
-
-    except HttpError as error:
-        print(f"❌ Error al crear carpeta o archivos: {error}")
-        return None
-
-def registrar_tienda_en_master(id_tienda, nombre_tienda, carpeta_id, inventario_id, pedidos_id, instagram_username="-", plan="Gratis", estado="activa"):
-    try:
-        hoja = client.open("Orderly_Master").worksheet("Tiendas")
-        fecha_hoy = datetime.now().strftime("%Y-%m-%d")
-
-        hoja.append_row([
-            id_tienda,
-            nombre_tienda,
-            carpeta_id,
-            inventario_id,
-            pedidos_id,
-            instagram_username,
-            plan,
+        hoja = client.open(NOMBRE_MAESTRO).worksheet("Debug")
+        nueva_fila = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            page_id,
+            sender_id,
+            message_text,
             estado,
-            fecha_hoy
-        ])
-        print(f"✅ Tienda {id_tienda} registrada correctamente en hoja Tiendas.")
-        return True
-
+            observaciones
+        ]
+        hoja.append_row(nueva_fila)
+        print("📝 Debug registrado correctamente.")
     except Exception as e:
-        import traceback
-        print("❌ Error al registrar tienda en hoja Tiendas:")
-        traceback.print_exc()
-        return False
+        print("❌ Error al registrar debugging en hoja:", str(e))

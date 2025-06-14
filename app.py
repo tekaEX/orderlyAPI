@@ -1,17 +1,24 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request
 import os
-import requests
+from sheets import agregar_pedido, obtener_id_pedidos_por_page_id
+from datetime import datetime
+from sheets import agregar_pedido, obtener_id_pedidos_por_page_id, registrar_debug
+import json
 
 app = Flask(__name__)
 
-# 🔐 Carga de variables de entorno
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "orden_ordely_verification_token")
-PAGE_ACCESS_TOKEN = os.environ.get("page_access_token")  # asegúrate de que esté bien en Render
 
-# ✅ Ruta de verificación para Meta
+# Archivo local para debugging de mensajes (se guarda en disco del servidor)
+DEBUG_LOG = "orderly_debug.log"
+
+def log_debug(data):
+    with open(DEBUG_LOG, "a", encoding="utf-8") as f:
+        f.write(json.dumps(data, ensure_ascii=False) + "\n")
+
 @app.route("/", methods=["GET"])
 def home():
-    return "OrderlyBot está corriendo 🚀", 200
+    return "OrderlyBot corriendo 🚀", 200
 
 @app.route("/webhook", methods=["GET"])
 def verify_webhook():
@@ -24,42 +31,58 @@ def verify_webhook():
     else:
         return "Token de verificación inválido", 403
 
-# ✅ Ruta que procesa los eventos POST de mensajes
 @app.route("/webhook", methods=["POST"])
 def receive_message():
     data = request.get_json()
     print("📩 Mensaje recibido:", data)
+    log_debug(data)  # ⬅️ Logging para debugging y auditoría
 
     if data.get("object") == "page":
         for entry in data.get("entry", []):
+            page_id = entry.get("id")  # ID de la página/tienda
+
+            sheet_id = obtener_id_pedidos_por_page_id(page_id)
+            if not sheet_id:
+                print(f"❌ No se encontró hoja de pedidos para tienda con page_id={page_id}")
+                continue
+
             for messaging_event in entry.get("messaging", []):
                 sender_id = messaging_event["sender"]["id"]
                 if "message" in messaging_event:
                     message_text = messaging_event["message"].get("text")
-                    print(f"🧾 Nuevo mensaje de {sender_id}: {message_text}")
+                    if not message_text:
+                        continue  # Solo registramos texto
 
-                    responder_a_usuario(sender_id, "¡Gracias por tu mensaje! 🚀")
+                    nuevo_pedido = {
+                        "pedido_id": f"P_{datetime.now().timestamp()}",
+                        "instagram_usuario": sender_id,
+                        "productos": message_text,
+                        "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "observaciones": "Mensaje directo recopilado automáticamente",
+                        "total": "",
+                        "tipo_entrega": "",
+                        "direccion_envio": "",
+                        "nombre_cliente": "",
+                        "dirección": ""
+                    }
+
+                    # Guardar el mensaje en Google Sheets
+                    try:
+                        agregar_pedido(sheet_id, nuevo_pedido)
+                        print(f"✅ Pedido registrado en tienda {page_id}")
+                    except Exception as e:
+                        print("❌ Error al registrar el pedido:", str(e))
 
     return "EVENT_RECEIVED", 200
 
-# 📬 Función para enviar un mensaje de vuelta por la API de Messenger
-def responder_a_usuario(recipient_id, mensaje):
-    if not PAGE_ACCESS_TOKEN:
-        print("❌ ERROR: Falta PAGE_ACCESS_TOKEN")
-        return
+try:
+    agregar_pedido(sheet_id, nuevo_pedido)
+    print(f"✅ Pedido registrado en tienda {page_id}")
+    registrar_debug(page_id, sender_id, message_text, "OK")
+except Exception as e:
+    print("❌ Error al registrar el pedido:", str(e))
+    registrar_debug(page_id, sender_id, message_text, "ERROR", str(e))
 
-    url = "https://graph.facebook.com/v18.0/me/messages"
-    headers = {"Content-Type": "application/json"}
-    params = {"access_token": PAGE_ACCESS_TOKEN}
-    payload = {
-        "recipient": {"id": recipient_id},
-        "message": {"text": mensaje}
-    }
-
-    response = requests.post(url, headers=headers, params=params, json=payload)
-    print("📤 Respuesta enviada:", response.json())
-
-# ✅ Este bloque asegura que solo Flask se ejecute localmente (no en gunicorn)
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)

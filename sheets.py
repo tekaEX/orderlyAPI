@@ -8,26 +8,22 @@ creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", sco
 client = gspread.authorize(creds)
 
 # Nombre y estructura de la hoja maestra
-NOMBRE_MAESTRO = "Orderly_Master"
+NOMBRE_MAESTRO = "ORDEELY_MASTER"
 NOMBRE_HOJA_TIENDAS = "Tiendas"
 COLUMNA_PAGE_ID = "page_id"
-COLUMNA_ID_PEDIDOS = "id_sheet_pedidos"
+COLUMNA_ID_PEDIDOS = "pedidos_id"
 
 # Columnas visuales del sheet de pedidos (ajusta aquí si cambias la plantilla)
 CAMPOS = [
     "id_pedido", "fecha", "cliente_nombre", "instagram_usual", "productos", "total",
     "tipo_entrega", "direccion_envio", "contacto", "estado", "observaciones"
 ]
-
 def obtener_id_pedidos_por_page_id(page_id):
-    """
-    Busca el ID del archivo de pedidos de la tienda según page_id en la hoja maestra.
-    """
     hoja = client.open(NOMBRE_MAESTRO).worksheet(NOMBRE_HOJA_TIENDAS)
     datos = hoja.get_all_records()
     for tienda in datos:
         if str(tienda[COLUMNA_PAGE_ID]) == str(page_id):
-            return tienda[COLUMNA_ID_PEDIDOS]
+            return tienda[COLUMNA_PEDIDOS_ID]
     return None
 
 def agregar_pedido(sheet_id, datos):

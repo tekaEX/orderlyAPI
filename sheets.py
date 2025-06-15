@@ -1,96 +1,76 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime
 
-# Autenticación Google Sheets
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+# === CONFIGURACIÓN ===
+CREDENTIALS_FILE = "credentials.json"
+MASTER_SHEET_ID = "1HoliJ9KPNud6N8ap8_nmYnWWH1pUpz-h5AwnIUVqCH8"  # El archivo 'ordeely_master' (no el de pedidos)
+# O puedes obtenerlo por nombre:
+# MASTER_SHEET_NAME = "ordeely_master"
+
+scope = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive"
+]
+creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
 client = gspread.authorize(creds)
 
-# Nombre y estructura de la hoja maestra
-NOMBRE_MAESTRO = "ORDEELY_MASTER"
-NOMBRE_HOJA_TIENDAS = "Tiendas"
-COLUMNA_PAGE_ID = "page_id"
-COLUMNA_ID_PEDIDOS = "pedidos_id"
-
-# Columnas visuales del sheet de pedidos (ajusta aquí si cambias la plantilla)
-CAMPOS = [
-    "id_pedido", "fecha", "cliente_nombre", "instagram_usual", "productos", "total",
-    "tipo_entrega", "direccion_envio", "contacto", "estado", "observaciones"
-]
-def obtener_id_pedidos_por_page_id(page_id):
-    hoja = client.open(NOMBRE_MAESTRO).worksheet(NOMBRE_HOJA_TIENDAS)
-    datos = hoja.get_all_records()
-    for tienda in datos:
-        if str(tienda[COLUMNA_PAGE_ID]) == str(page_id):
-            return tienda[COLUMNA_PEDIDOS_ID]
+# === 1. Buscar sheet de pedidos por page_id ===
+def buscar_sheet_pedidos_por_pageid(page_id):
+    """
+    Busca el ID del archivo de pedidos asociado al page_id en la hoja principal de tiendas.
+    """
+    sheet = client.open_by_key(MASTER_SHEET_ID).sheet1
+    filas = sheet.get_all_records()
+    for row in filas:
+        # Puede ser que tu hoja lo guarde como 'id_tienda' o como 'carpeta_id', revisa el nombre correcto
+        # page_id puede estar en 'id_tienda' o 'instagram_username', revisa tus columnas
+        if str(row.get("id_tienda")) == str(page_id) or str(row.get("carpeta_id")) == str(page_id):
+            return row.get("pedidos_id")
     return None
 
-def agregar_pedido(sheet_id, datos):
+# === 2. Agregar pedido al archivo de pedidos ===
+def agregar_pedido(sheet_id, datos_pedido):
     """
-    Agrega un pedido a la hoja de pedidos especificada por sheet_id, respetando el formato visual (desde fila 8 en adelante).
+    Agrega un nuevo pedido a la hoja de pedidos (sheet_id).
+    Espera un diccionario con los campos apropiados.
     """
     hoja = client.open_by_key(sheet_id).sheet1
 
-    # Encontrar la siguiente fila disponible, empezando desde la fila 8
-    filas = hoja.get_all_values()
-    fila_destino = len(filas) + 1 if len(filas) >= 8 else 8
-
-    # Armar la fila según el orden de tu plantilla
-    nueva_fila = [
-        datos.get("id_pedido", ""),
-        datos.get("fecha", datetime.now().strftime("%Y-%m-%d %H:%M")),
-        datos.get("cliente_nombre", ""),
-        datos.get("instagram_usual", ""),
-        datos.get("productos", ""),
-        datos.get("total", ""),
-        datos.get("tipo_entrega", ""),
-        datos.get("direccion_envio", ""),
-        datos.get("contacto", ""),
-        datos.get("estado", "pendiente"),
-        datos.get("observaciones", "")
+    # Ajusta el orden y nombres de las columnas a las de tu plantilla real de pedidos:
+    fila = [
+        datos_pedido.get("pedido_id", ""),
+        datos_pedido.get("estado", "pendiente"),
+        datos_pedido.get("fecha", ""),
+        datos_pedido.get("instagram_usuario", ""),
+        datos_pedido.get("productos", ""),
+        datos_pedido.get("total", ""),
+        datos_pedido.get("tipo_entrega", ""),
+        datos_pedido.get("direccion_envio", ""),
+        datos_pedido.get("nombre_cliente", ""),
+        datos_pedido.get("dirección", ""),
+        datos_pedido.get("observaciones", "")
     ]
 
-    hoja.insert_row(nueva_fila, fila_destino)
-    print(f"✅ Pedido agregado en fila {fila_destino} (hoja {sheet_id})")
+    # Puedes definir la fila inicial si tu plantilla tiene encabezados o formato visual
+    # Por ejemplo, si tienes 7 filas decorativas/encabezado, inicia en la 8:
+    hoja.insert_row(fila, 8)
+    print(f"✅ Pedido agregado a la hoja {sheet_id}")
 
-# Ejemplo de uso aislado
+# === Ejemplo de prueba ===
 if __name__ == "__main__":
-    # page_id de ejemplo
-    page_id = "1234567890"
-    sheet_id = obtener_id_pedidos_por_page_id(page_id)
-    if not sheet_id:
-        print("No se encontró la hoja de pedidos para este page_id.")
-    else:
-        pedido_demo = {
-            "id_pedido": "P001",
-            "cliente_nombre": "Juan Pérez",
-            "instagram_usual": "@ejemplo",
-            "productos": "Chaqueta L, Zapatillas 42",
-            "total": "59990",
-            "tipo_entrega": "Envío",
-            "direccion_envio": "Calle Falsa 123",
-            "contacto": "+56 9 1234 5678",
-            "estado": "pendiente",
-            "observaciones": "Cliente habitual"
-        }
-        agregar_pedido(sheet_id, pedido_demo)
-        
-def registrar_debug(page_id, sender_id, message_text, estado, observaciones=""):
-    """
-    Registra un log simple en la hoja Debug de Orderly_Master.
-    """
-    try:
-        hoja = client.open(NOMBRE_MAESTRO).worksheet("Debug")
-        nueva_fila = [
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            page_id,
-            sender_id,
-            message_text,
-            estado,
-            observaciones
-        ]
-        hoja.append_row(nueva_fila)
-        print("📝 Debug registrado correctamente.")
-    except Exception as e:
-        print("❌ Error al registrar debugging en hoja:", str(e))
+    # Simula un pedido
+    ejemplo = {
+        "pedido_id": "P123",
+        "estado": "pendiente",
+        "fecha": "2025-06-14",
+        "instagram_usuario": "@prueba",
+        "productos": "Chaqueta L",
+        "total": "29990",
+        "tipo_entrega": "envío",
+        "direccion_envio": "Calle Falsa 123",
+        "nombre_cliente": "Juan Pérez",
+        "dirección": "Santiago",
+        "observaciones": "Mensaje directo"
+    }
+    sheet_id = "ID_DE_LA_HOJA_DE_PEDIDOS_DE_PRUEBA"
+    agregar_pedido(sheet_id, ejemplo)

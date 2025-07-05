@@ -1,25 +1,14 @@
 from flask import Flask, request
 import os
-from sheets import agregar_pedido, buscar_sheet_pedidos_por_pageid  # Debes tener estas funciones
+from sheets import agregar_pedido, buscar_sheet_pedidos_por_username, crear_tienda
 from datetime import datetime
-import json
 
 app = Flask(__name__)
-
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "orden_ordely_verification_token")
 
 @app.route("/", methods=["GET"])
 def home():
     return "OrderlyBot corriendo 🚀", 200
-
-@app.route("/webhook", methods=["GET"])
-def verify_webhook():
-    mode = request.args.get("hub.mode")
-    token = request.args.get("hub.verify_token")
-    challenge = request.args.get("hub.challenge")
-    if mode == "subscribe" and token == VERIFY_TOKEN:
-        return challenge, 200
-    return "Token de verificación inválido", 403
 
 @app.route("/webhook", methods=["POST"])
 def receive_message():
@@ -28,23 +17,25 @@ def receive_message():
 
     if data.get("object") == "instagram":
         for entry in data.get("entry", []):
-            page_id = entry.get("id")  # Este es el identificador de la tienda
-            if not page_id:
-                print("❌ No se encontró page_id")
-                continue
-
-            # Buscar el Google Sheet de pedidos correspondiente a ese page_id
-            sheet_id = buscar_sheet_pedidos_por_pageid(page_id)
-            if not sheet_id:
-                print(f"❌ No se encontró hoja de pedidos para tienda con page_id={page_id}")
-                continue
-
+            page_id = entry.get("id")
             for messaging_event in entry.get("messaging", []):
                 sender_id = messaging_event["sender"]["id"]
+                # Si tienes una función que obtiene el username real, úsala. Si no, usa page_id
+                instagram_username = None
+                # instagram_username = obtener_username_desde_api(sender_id) # Implementa si tienes la API
+                if not instagram_username:
+                    instagram_username = f"tienda_{page_id}"
+
+                # Buscar hoja de pedidos, si no existe la tienda la crea automáticamente
+                sheet_id = buscar_sheet_pedidos_por_username(instagram_username)
+                if not sheet_id:
+                    print(f"🆕 No existe tienda para {instagram_username}, creando...")
+                    sheet_id = crear_tienda(instagram_username, page_id)
+
                 if "message" in messaging_event:
                     message_text = messaging_event["message"].get("text")
                     if not message_text:
-                        continue  # Ignorar mensajes vacíos
+                        continue
 
                     nuevo_pedido = {
                         "pedido_id": f"P_{datetime.now().timestamp()}",
@@ -62,7 +53,7 @@ def receive_message():
 
                     try:
                         agregar_pedido(sheet_id, nuevo_pedido)
-                        print(f"✅ Pedido registrado en tienda {page_id}")
+                        print(f"✅ Pedido registrado en tienda {instagram_username}")
                     except Exception as e:
                         print("❌ Error al registrar el pedido:", str(e))
 
